@@ -63,6 +63,11 @@ CONFIG_FILES = {
         'deployment': 'prom_deployment.yaml',
         'config': 'prom_configmap.yaml'
     },
+    'rbac': {
+        'clusterrole': 'rbac_cluster_role.yaml',
+        'clusterrolebinding': 'rbac_cluster_role_binding.yaml',
+        'serviceaccount': 'rbac_service_account.yaml'
+    },
     'model': {
         'deployment': 'model-container-template.yaml'
     }
@@ -163,6 +168,8 @@ class KubernetesContainerManager(ContainerManager):
         configuration.assert_hostname = False
         self._k8s_v1 = client.CoreV1Api()
         self._k8s_beta = client.ExtensionsV1beta1Api()
+        self._k8s_rbac = client.RbacAuthorizationV1beta1Api()
+        
 
         # Create the template engine
         # Config: Any variable missing -> Error
@@ -249,6 +256,7 @@ class KubernetesContainerManager(ContainerManager):
                       qf_http_timeout_request,
                       qf_http_timeout_content,
                       num_frontend_replicas=1):
+        self._config_rbac()
         self._start_redis()
         self._start_mgmt(mgmt_frontend_image)
         self.num_frontend_replicas = num_frontend_replicas
@@ -370,6 +378,7 @@ class KubernetesContainerManager(ContainerManager):
                 CONFIG_FILES['metric']['deployment'],
                 version=PROM_VERSION,
                 cluster_name=self.cluster_name,
+                service_account_name=self.cluster_name+"-prometheus"
             )
             self._k8s_beta.create_namespaced_deployment(
                 body=deployment_data, namespace=self.k8s_namespace)
@@ -382,6 +391,28 @@ class KubernetesContainerManager(ContainerManager):
             )
             self._k8s_v1.create_namespaced_service(
                 body=service_data, namespace=self.k8s_namespace)
+
+    def _config_rbac(self):
+        with _pass_conflicts():
+            clusterrole_data = self._generate_config(
+                CONFIG_FILES['rbac']['clusterrole'],
+                cluster_name=self.cluster_name, namespace=self.k8s_namespace)
+            self._k8s_rbac.create_cluster_role(
+                body=clusterrole_data)
+
+        with _pass_conflicts():
+            clusterrolebinding_data = self._generate_config(
+                CONFIG_FILES['rbac']['clusterrolebinding'],
+                cluster_name=self.cluster_name, namespace=self.k8s_namespace)
+            self._k8s_rbac.create_cluster_role_binding(
+                body=clusterrolebinding_data)
+
+        with _pass_conflicts():
+            serviceaccount_data = self._generate_config(
+                CONFIG_FILES['rbac']['serviceaccount'],
+                cluster_name=self.cluster_name, namespace=self.k8s_namespace)
+            self._k8s_v1.create_namespaced_service_account(
+                body=serviceaccount_data, namespace=self.k8s_namespace)
 
     def _generate_config(self, file_path, **kwargs):
         template = self.template_engine.get_template(file_path)
