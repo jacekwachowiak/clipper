@@ -66,7 +66,6 @@ CONFIG_FILES = {
     'rbac': {
         'clusterrole': 'rbac_cluster_role.yaml',
         'clusterrolebinding': 'rbac_cluster_role_binding.yaml',
-        'serviceaccount': 'rbac_service_account.yaml'
     },
     'model': {
         'deployment': 'model-container-template.yaml'
@@ -378,7 +377,6 @@ class KubernetesContainerManager(ContainerManager):
                 CONFIG_FILES['metric']['deployment'],
                 version=PROM_VERSION,
                 cluster_name=self.cluster_name,
-                service_account_name=self.cluster_name+"-prometheus"
             )
             self._k8s_beta.create_namespaced_deployment(
                 body=deployment_data, namespace=self.k8s_namespace)
@@ -406,13 +404,6 @@ class KubernetesContainerManager(ContainerManager):
                 cluster_name=self.cluster_name, namespace=self.k8s_namespace)
             self._k8s_rbac.create_cluster_role_binding(
                 body=clusterrolebinding_data)
-
-        with _pass_conflicts():
-            serviceaccount_data = self._generate_config(
-                CONFIG_FILES['rbac']['serviceaccount'],
-                cluster_name=self.cluster_name, namespace=self.k8s_namespace)
-            self._k8s_v1.create_namespaced_service_account(
-                body=serviceaccount_data, namespace=self.k8s_namespace)
 
     def _generate_config(self, file_path, **kwargs):
         template = self.template_engine.get_template(file_path)
@@ -690,6 +681,12 @@ class KubernetesContainerManager(ContainerManager):
 
             self._k8s_v1.delete_collection_namespaced_config_map(
                 namespace=self.k8s_namespace, label_selector=cluster_selector)
+
+            self._k8s_rbac.delete_collection_cluster_role(
+                label_selector=cluster_selector)
+
+            self._k8s_rbac.delete_collection_cluster_role_binding(
+                label_selector=cluster_selector)
         except ApiException as e:
             logging.warning(
                 "Exception deleting kubernetes resources: {}".format(e))
